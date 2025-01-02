@@ -5,18 +5,27 @@ module Gitrea.Packfile.Delta (
 ) where
 
 import qualified Data.ByteString as B
-import Data.Binary.Strict.Get
+import Data.Binary.Get
 import Control.Monad (liftM, foldM)
 import Data.Bits (Bits, (.&.), (.|.), shiftL)
 import Gitrea.Common (isMsbSet)
 import System.Environment (getArgs)
 import Data.Word
 
-data DeltaHeader = {
+data DeltaHeader = DeltaHeader {
     sourceLength :: Int
   , targetLength :: Int
   , getOffset    :: Int 
 } deriving (Show)
+
+main = do
+  (sourceFile:deltaFile:_) <- getArgs
+  source <- B.readFile sourceFile
+  delta <- B.readFile deltaFile
+  header <- decodeDeltaHeader delta
+  print header
+  print $ B.length source
+  either putStrLn (B.writeFile "target.file") $ patch source delta
 
 patch :: B.ByteString -> B.ByteString -> Either String B.ByteString
 patch base delta = do
@@ -32,6 +41,29 @@ run offset source delta = do
   skip offset
   command <- getWord8
   runCommand command B.empty source delta
+
+decodeDeltaHeader :: Monad m => B.ByteString -> m DeltaHeader
+decodeDeltaHeader delta = do
+  let res1 = runGet (decodeSize 0) delta
+      (sourceBufferSize, offset) = either (const (0,0)) id $ fst res1
+      res2 = runGet (decodeSize offset) delta
+      (targetBufferSize, offset') = either (const (0,0)) id $ fst res2
+  
+  return (DeltaHeader sourceBufferSize targetBufferSize offset')
+
+  where
+    decodeSize offset = do
+      skip offset
+      byte <- getWord8
+      next (maskMsb byte) 7 byte $ succ offset
+    
+    next base shift byte' count | isMsbSet byte' = do
+      b <- getWord8
+      let len = base .|. ((maskMsb b) `shiftL` shift)
+      next len (shift + 7) b $ succ count
+    next finalLen _ _ count = return (finalLen, count)
+
+    maskMsb byte = fromIntegral $ byte .&. 0x7f
 
 runCommand :: Word8 -> B.ByteString -> B.ByteString -> t -> Get B.ByteString
 runCommand command acc source delta = do

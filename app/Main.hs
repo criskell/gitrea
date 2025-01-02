@@ -104,7 +104,7 @@ receiveWithSideband :: Socket -> (B.ByteString IO a) -> IO B.ByteString
 receiveWithSideband sock f = recrec mempty
   where
     recrec acc = do
-      !maybeLIne <- readPacketLine sock
+      !maybeLine <- readPacketLine sock
       let skip = recrec acc
       case maybeLine of
         Just "NAK\n" -> skip
