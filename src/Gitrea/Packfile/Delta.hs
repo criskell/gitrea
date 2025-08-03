@@ -1,25 +1,27 @@
 {-# LANGUAGE DoAndIfThenElse #-}
 
-module Gitrea.Packfile.Delta (
-  patch
-) where
+module Gitrea.Packfile.Delta
+  ( patch,
+  )
+where
 
+import Control.Monad (foldM, liftM)
+import Data.Binary.Strict.Get
+import Data.Bits (Bits, shiftL, (.&.), (.|.))
 import qualified Data.ByteString as B
-import Data.Binary.Get
-import Control.Monad (liftM, foldM)
-import Data.Bits (Bits, (.&.), (.|.), shiftL)
+import Data.Word
 import Gitrea.Common (isMsbSet)
 import System.Environment (getArgs)
-import Data.Word
 
-data DeltaHeader = DeltaHeader {
-    sourceLength :: Int
-  , targetLength :: Int
-  , getOffset    :: Int 
-} deriving (Show)
+data DeltaHeader = DeltaHeader
+  { sourceLength :: Int,
+    targetLength :: Int,
+    getOffset :: Int
+  }
+  deriving (Show)
 
 main = do
-  (sourceFile:deltaFile:_) <- getArgs
+  (sourceFile : deltaFile : _) <- getArgs
   source <- B.readFile sourceFile
   delta <- B.readFile deltaFile
   header <- decodeDeltaHeader delta
@@ -30,11 +32,12 @@ main = do
 patch :: B.ByteString -> B.ByteString -> Either String B.ByteString
 patch base delta = do
   header <- decodeDeltaHeader delta
-  
-  if B.length base == sourceLength header then
-    fst $ runGet (run (getOffset header) base delta) delta
-  else
-    Left "Source length does not match base length"
+
+  if B.length base == sourceLength header
+    then
+      fst $ runGet (run (getOffset header) base delta) delta
+    else
+      Left "Source length does not match base length"
 
 run :: Int -> B.ByteString -> B.ByteString -> Get B.ByteString
 run offset source delta = do
@@ -42,21 +45,20 @@ run offset source delta = do
   command <- getWord8
   runCommand command B.empty source delta
 
-decodeDeltaHeader :: Monad m => B.ByteString -> m DeltaHeader
+decodeDeltaHeader :: (Monad m) => B.ByteString -> m DeltaHeader
 decodeDeltaHeader delta = do
   let res1 = runGet (decodeSize 0) delta
-      (sourceBufferSize, offset) = either (const (0,0)) id $ fst res1
+      (sourceBufferSize, offset) = either (const (0, 0)) id $ fst res1
       res2 = runGet (decodeSize offset) delta
-      (targetBufferSize, offset') = either (const (0,0)) id $ fst res2
-  
-  return (DeltaHeader sourceBufferSize targetBufferSize offset')
+      (targetBufferSize, offset') = either (const (0, 0)) id $ fst res2
 
+  return (DeltaHeader sourceBufferSize targetBufferSize offset')
   where
     decodeSize offset = do
       skip offset
       byte <- getWord8
       next (maskMsb byte) 7 byte $ succ offset
-    
+
     next base shift byte' count | isMsbSet byte' = do
       b <- getWord8
       let len = base .|. ((maskMsb b) `shiftL` shift)
@@ -67,37 +69,38 @@ decodeDeltaHeader delta = do
 
 runCommand :: Word8 -> B.ByteString -> B.ByteString -> t -> Get B.ByteString
 runCommand command acc source delta = do
-  result <- choose cmd
+  result <- choose command
   finished <- isEmpty
 
   let acc' = B.append acc result
 
-  if finished then
-    return acc'
-  else do
-    command' <- getWord8
-    runCommand command' acc' source delta
-
+  if finished
+    then
+      return acc'
+    else do
+      command' <- getWord8
+      runCommand command' acc' source delta
   where
     choose opcode | isMsbSet opcode = copyCommand opcode source
     choose opcode = insertCommand opcode
 
-insertCommand :: Integral a => a -> Get B.ByteString
+insertCommand :: (Integral a) => a -> Get B.ByteString
 insertCommand = getByteString . fromIntegral
 
 copyCommand :: Word8 -> B.ByteString -> Get B.ByteString
 copyCommand opcode source = do
   (offset, length) <- readCopyInstruction opcode
   return $ copy length offset source
+  where
+    copy len' offset' = B.take len' . B.drop offset'
 
 readCopyInstruction :: (Integral a) => Word8 -> Get (a, a)
 readCopyInstruction opcode = do
-  offset <- foldM readIfBitSet 0 $ zip [0x01, 0x02, 0x04, 0x08] [0,8..]
-  len' <- foldM readIfBitSet 0 $ zip [0x10, 0x20, 0x40] [0,8..]
+  offset <- foldM readIfBitSet 0 $ zip [0x01, 0x02, 0x04, 0x08] [0, 8 ..]
+  len' <- foldM readIfBitSet 0 $ zip [0x10, 0x20, 0x40] [0, 8 ..]
   let len = if coerce len' == 0 then 0x10000 else len'
   return $ (coerce offset, coerce len)
-
   where
-    calculateVal off shift = if shift /= 0 then (\x -> off .|. (x `shiftL` shift)::Int) . fromIntegral else fromIntegral
+    calculateVal off shift = if shift /= 0 then (\x -> off .|. (x `shiftL` shift) :: Int) . fromIntegral else fromIntegral
     readIfBitSet off (test, shift) = if opcode .&. test /= 0 then liftM (calculateVal off shift) getWord8 else return off
     coerce = toEnum . fromEnum

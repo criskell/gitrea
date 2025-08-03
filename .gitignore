@@ -1,2 +1,8 @@
 .stack-work/
 *~
+*.hi
+*.o
+dist
+dist-newstyle
+target.file
+*.c
