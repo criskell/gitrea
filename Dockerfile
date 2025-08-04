@@ -29,10 +29,12 @@ RUN curl -LO https://downloads.haskell.org/~cabal/cabal-install-2.4.1.0/cabal-in
     tar -xf cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz -C /usr/local/bin cabal && \
     rm cabal-install-2.4.1.0-x86_64-unknown-linux.tar.xz
 
+COPY . /workspace
+WORKDIR /workspace
+
 RUN cabal update && \
   cabal install --only-dependencies --force-reinstalls && \
-  cabal configure
-
-WORKDIR /workspace
+  cabal configure && \
+  ghc-pkg unregister bytestring-0.10.0.2 --force
 
 CMD ["/bin/bash"]

@@ -98,9 +98,8 @@ readCopyInstruction :: (Integral a) => Word8 -> Get (a, a)
 readCopyInstruction opcode = do
   offset <- foldM readIfBitSet 0 $ zip [0x01, 0x02, 0x04, 0x08] [0, 8 ..]
   len' <- foldM readIfBitSet 0 $ zip [0x10, 0x20, 0x40] [0, 8 ..]
-  let len = if coerce len' == 0 then 0x10000 else len'
-  return $ (coerce offset, coerce len)
+  let len = if len' == 0 then 0x10000 else len'
+  return $ (fromIntegral offset, fromIntegral len)
   where
-    calculateVal off shift = if shift /= 0 then (\x -> off .|. (x `shiftL` shift) :: Int) . fromIntegral else fromIntegral
+    calculateVal off shift = (\x -> off .|. (x `shiftL` shift) :: Int) . fromIntegral
     readIfBitSet off (test, shift) = if opcode .&. test /= 0 then liftM (calculateVal off shift) getWord8 else return off
-    coerce = toEnum . fromEnum
