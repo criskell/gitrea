@@ -54,7 +54,7 @@ readPacketLine socket = do
       _ -> return Nothing
 
   where
-    -- \| Completely read the specified amount of bytes from the socket.
+    -- Completely read the specified amount of bytes from the socket.
     -- The `read` function does not guarantee that the quantity will be returned at once.
     readFully acc expected = do
       line <- recv socket expected

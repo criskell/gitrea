@@ -1,10 +1,53 @@
 {-# LANGUAGE OverloadedStrings, DoAndIfThenElse, BangPatterns #-}
 
-module Gitrea.Packfile.Packfile where
+module Gitrea.Packfile.Packfile (
+  packRead
+  , Packfile(..)
+  , PackfileObject(..)
+  , PackObjectType(..)
+) where
 
-import qualified Data.Iteratee as I
+import Control.Applicative
+import Data.ByteString (ByteString)
+import qualified Data.Iteratee as It
+import Data.Iteratee.Binary
+import Data.Iteratee.ZLib
+import Control.Monad (replicateM)
+import Data.Maybe
+import Data.Char
+import Data.Word (Word8, Word32)
+import Data.Bits
+import Gitrea.Common (isMsbSet, fromOctets)
 
-parsePackfile :: I.Iterate ByteString IO Packfile
+type Content = ByteString
+
+data Packfile = Packfile {
+  version :: Word32
+  , numObjects :: Word32
+  , objects :: [PackfileObject]
+} | InvalidPackfile deriving (Show, Eq)
+
+data PackfileObject = PackfileObject {
+  objectType :: PackfileObjectType
+  , size :: Int
+  , objectData :: Content
+} deriving (Show, Eq)
+
+data PackfileObjectType =
+  OBJ_COMMIT
+  | OBJ_TREE
+  | OBJ_NONE
+  | OBJ_BLOB
+  | OBJ_TAG
+  | OBJ_OFS_DELTA Int
+  | OBJ_REF_DELTA [Word8]
+  | OBJ_ANY
+  | OBJ_MAX deriving (Eq, Show, Ord)
+
+packRead :: FilePath -> IO Packfile
+packRead path = It.fileDriverRandom parsePackfile
+
+parsePackfile :: I.Iteratee ByteString IO Packfile
 parsePackfile = do
   magic <- endianRead4 MSB -- 4 bytes, big-endian
   version' <- endianRead4 MSB
@@ -28,7 +71,7 @@ parsePackObject = do
   normalizedObjectType <- toPackObjectType objectType'
 
   !content <- It.joinI $ enumInflate Zlib defaultDecompressParams It.stream2stream
-  return $ (\t -> PackfileObject t siz' content) <$> normalizedObjectType
+  return $ (\t -> PackfileObject t size' content) <$> normalizedObjectType
 
 isMsbSet :: Word8 -> Bool
 isMsbSet x = (x .&. 0b10000000) /= 0
@@ -58,3 +101,16 @@ toPackObjectType 7 = do
   baseObject <- replicateM 20 I.head
   return $ Just (OBJ_REF_DELTA baseObject)
 toPackObjectType _ = return Nothing
+
+-- FIXME: Isso está usando little-endian, mas deveria usar big-endian.
+-- https://github.com/git/git/blob/2c2ba49d55ff26c1082b8137b1ec5eeccb4337d1/packfile.c#L1245-L1258
+readOffset :: Int -> Int -> It.Iteratee ByteString IO Int
+readOffset shift acc = do
+  x <- It.head
+
+  let bs = acc + ((coerce (x .&. 127) :: Int) `shiftL` shift)
+
+  if isMsbSet x
+    then readOffset (shift + 7) (bs + 1)
+    else return bs
+  where coerce = toEnum . fromEnum
