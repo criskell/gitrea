@@ -1,16 +1,6 @@
 # gitrea
 
-## testing test-delta
-
-```
-git clone git@github.com:git/git.git
-make configure
-./configure
-make
-./t/helper/test-tool delta <...>
-```
-
-## testing
+## running
 
 ```
 docker build -t gitrea-ghc .
@@ -19,9 +9,24 @@ cabal update
 cabal install --only-dependencies --force-reinstalls
 cabal configure
 cabal build
+./dist/build/gitrea/gitrea clone git://0.0.0.0/myrepo
+```
+
+## testing test-delta
+
+git:
+```
+git clone git@github.com:git/git.git
+make configure
+./configure
+make
+./t/helper/test-tool delta <...>
+```
+
+app:
+```
 runhaskell -isrc ./src/Gitrea/Packfile/Delta.hs ./git-zlib.c zlib-delta
 diff -q target.file git-zlib-changed.c
-./dist/build/gitrea/gitrea clone git://0.0.0.0/myrepo
 ```
 
 ## git
