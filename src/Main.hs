@@ -1,36 +1,33 @@
-module Main where
+module Main (main, run) where
 
-data Remote = {
-      getHost        :: String
-    , getPort        :: Maybe Int
-    , getRepository  :: String 
-} deriving (Eq, Show)
+import System.Environment (getArgs)
+import Data.Maybe (listToMaybe)
+import Gitrea.Store.Index (IndexEntry(..), readIndex)
+import Gitrea.Remote.Operations
+import Gitrea.Store.Unpack
 
--- `pkt-line` format.
+main :: IO ()
+main = do
+    args = getArgs
 
--- | Represents a string in pkt-line format.
--- First four bytes is the string length and remaining is the overall string.
-pktLine :: String -> String
-pktLine msg = printf "%04s%s" (toHex . (4 +) $ length msg) msg
+    case args of
+        (cmd:xs) -> run cmd xs
+        _ -> error $ "usage: gitrea <command> [<args>]\n\n"
+                     "Supported commands are:\n" ++
+                     "clone       <repo> [dir]    Clone a repository into a new directory\n" ++
+                     "ls-remote   <repo>          List references in a remote repository\n" ++
+                     "unpack      <file>          Unpack a pack file into a bare repository\n" ++
+                     "read-index  <file>          Read a `.git/index` file and show the index entries"
 
--- We use it when we want to notify that an agreed point in communication has been reached.
-flushPktLine = "0000"
+run :: String -> [String] -> IO ()
+run "clone" (url:xs) = clone url $ listToMaybe xs
+run "ls-remote" (url:_) = lsRemote url
+run "unpack" (name:file:_) = unpack name file
+run "read-index" (file:pattern:_) = do
+                                entries <- readIndex file
+                                printIndex $ filter (\e -> path e == pattern) entries
+run "read-index" (file:_) = printIndex =<< readIndex file
+run _ _  = error "Unknown command or missing arguments"
 
--- Git protocol.
-
--- ABNF: `git-proto-request = request-command SP pathname NUL [ host-parameter NUL ]`
-gitProtocolRequest :: String -> String -> String
-gitProtocolRequest host repo = pktLine $ "git-upload-pack /" ++ repo ++ "\0host=" ++ host ++ "\0"
-
-lsRemote' :: Remote -> IO [PacketLine]
-lsRemote' Remote{..} = withSocketsDo $
-    withConnection getHost (show $ fromMaybe 9418 getPort) $ \socket ->
-        let payload = gitProtocolRequest getHost getRepository
-        
-        send socket payload
-
-        response <- receive socket
-
-        send socket flushPktLine
-
-        return $ parsePacket $ L.fromChunks [response]
+printIndex :: [IndexEntry] -> IO ()
+printIndex = mapM_ (putStrLn . (++ "\n") . show)

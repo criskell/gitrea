@@ -33,12 +33,24 @@ receive socket = receive' socket mempty
       maybeLine <- readPacketLine s
       maybe (return acc) (receive' s . mappend acc) maybeLine
 
-openConnection :: HostName -> ServiceName -> IO Socket
-openConnection host port = do
-  serverAddress <- NE.head <$> getAddrInfo Nothing (Just host) (Just port)
-  sock <- socket (addrFamily serverAddress) Stream defaultProtocol
-  connect sock (addrAddress serverAddress)
-  return sock
+receiveFully :: Socket -> IO C.ByteString
+receiveFully sock = receive' sock mempty
+  where receive' s acc = do
+          msg <- recv s 4096
+          if C.null msg then return acc else receive' s $ acc `mappend` msg
+
+receiveWithSideband :: Socket -> (B.ByteString -> IO a) -> IO B.ByteString
+receiveWithSideband sock f = recrec mempty
+  where recrec acc = do
+          !maybeLine <- readPacketLine sock
+          let skip = recrecc acc
+          case maybeLine of
+            Just "NAK" -> skip
+            Just line -> case B.uncons line of
+                          Just (1, rest) -> recrec (acc `mappend` rest)
+                          Just (2, rest) -> f ("remote: " `C.append` rest) >> skip
+                          Just (_, rest) -> fail $ C.unpack rest
+            Nothing -> return acc
 
 readPacketLine :: Socket -> IO (Maybe C.ByteString)
 readPacketLine socket = do
@@ -64,3 +76,10 @@ readPacketLine socket = do
           haveMoreReading = len /= expected && not (C.null line)
 
       if haveMoreReading then readFully acc' (expected - len) else return acc'
+
+openConnection :: HostName -> ServiceName -> IO Socket
+openConnection host port = do
+  serverAddress <- NE.head <$> getAddrInfo Nothing (Just host) (Just port)
+  sock <- socket (addrFamily serverAddress) Stream defaultProtocol
+  connect sock (addrAddress serverAddress)
+  return sock
