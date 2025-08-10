@@ -8,11 +8,11 @@ import Gitrea.Store.Unpack
 
 main :: IO ()
 main = do
-    args = getArgs
+    args <- getArgs
 
     case args of
         (cmd:xs) -> run cmd xs
-        _ -> error $ "usage: gitrea <command> [<args>]\n\n"
+        _ -> error $ "usage: gitrea <command> [<args>]\n\n" ++
                      "Supported commands are:\n" ++
                      "clone       <repo> [dir]    Clone a repository into a new directory\n" ++
                      "ls-remote   <repo>          List references in a remote repository\n" ++

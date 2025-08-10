@@ -20,7 +20,8 @@ cabal install --only-dependencies --force-reinstalls
 cabal configure
 cabal build
 runhaskell -isrc ./src/Gitrea/Packfile/Delta.hs ./git-zlib.c zlib-delta
-diff -q target.file git-zlib-changed.c 
+diff -q target.file git-zlib-changed.c
+./dist/build/gitrea/gitrea clone git://0.0.0.0/myrepo
 ```
 
 ## git

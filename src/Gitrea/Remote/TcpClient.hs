@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings, ScopedTypeVariables, BangPatterns #-}
+
 module Gitrea.Remote.TcpClient
   ( withConnection,
     send,
@@ -10,10 +12,9 @@ where
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Char8 as C
-import qualified Data.List.NonEmpty as NE
 import Data.Monoid (mappend, mempty)
 import Network.Socket hiding (recv, send)
-import Network.Socket.ByteString hiding (recv, sendAll)
+import Network.Socket.ByteString (recv, sendAll)
 import Numeric (readHex)
 
 withConnection :: HostName -> ServiceName -> (Socket -> IO a) -> IO a
@@ -43,9 +44,9 @@ receiveWithSideband :: Socket -> (B.ByteString -> IO a) -> IO B.ByteString
 receiveWithSideband sock f = recrec mempty
   where recrec acc = do
           !maybeLine <- readPacketLine sock
-          let skip = recrecc acc
+          let skip = recrec acc
           case maybeLine of
-            Just "NAK" -> skip
+            Just "NAK\n" -> skip
             Just line -> case B.uncons line of
                           Just (1, rest) -> recrec (acc `mappend` rest)
                           Just (2, rest) -> f ("remote: " `C.append` rest) >> skip
@@ -73,13 +74,14 @@ readPacketLine socket = do
 
       let length = C.length line
           acc' = acc `mappend` line
-          haveMoreReading = len /= expected && not (C.null line)
+          haveMoreReading = length /= expected && not (C.null line)
 
-      if haveMoreReading then readFully acc' (expected - len) else return acc'
+      if haveMoreReading then readFully acc' (expected - length) else return acc'
 
 openConnection :: HostName -> ServiceName -> IO Socket
 openConnection host port = do
-  serverAddress <- NE.head <$> getAddrInfo Nothing (Just host) (Just port)
+  addrInfos <- getAddrInfo Nothing (Just host) (Just port)
+  let serverAddress = head addrInfos
   sock <- socket (addrFamily serverAddress) Stream defaultProtocol
   connect sock (addrAddress serverAddress)
   return sock

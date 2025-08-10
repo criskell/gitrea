@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, BangPatterns, NoMonomorphismRestriction, RecordWildcards #-}
+{-# LANGUAGE OverloadedStrings, BangPatterns, NoMonomorphismRestriction, RecordWildCards #-}
 
 module Gitrea.Store.Index (
   writeIndex
@@ -13,6 +13,7 @@ import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
 import qualified Codec.Binary.UTF8.String as CS (encode)
+import qualified Crypto.Hash.SHA1 as SHA1
 import Data.Char (ord)
 import Data.Function (on)
 import Data.List (sortBy)
@@ -43,7 +44,8 @@ data IndexEntry = IndexEntry {
   , uid :: Word32
   , gid :: Word32
   , size :: Int64
-  , getFileMode :: GitFileMode
+  , sha :: [Word8]
+  , gitFileMode :: GitFileMode
   , path :: String
 } deriving (Eq)
 
@@ -53,7 +55,7 @@ instance Show IndexEntry where
                           path ctime mtime device inode uid gid size (show gitFileMode) (toHex' sha)
 
 toHex' :: [Word8] -> String
-toHex = (printf "%02x" =<<)
+toHex' = (printf "%02x" =<<)
 
 instance Binary IndexEntry where
   put (IndexEntry cs ms dev inode' mode' uid' gid' size' sha' gitFileMode' name')
@@ -180,6 +182,6 @@ lazyToStrictBS x = B.concat $ L.toChunks x
 indexHeader :: Word32 -> Builder
 indexHeader num =
   putWord32be magic
-  <> putWord32Be 2
-  <> putWord32Be num
-  where magic = fromOctects $ map (fromIntegral . ord) "DIRC"
+  <> putWord32be 2
+  <> putWord32be num
+  where magic = fromOctets $ map (fromIntegral . ord) "DIRC"

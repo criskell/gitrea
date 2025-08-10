@@ -38,7 +38,7 @@ walkTree acc parent tree = do
                             liftIO $ createDirectory dir
                             maybeTree <- resolveTree $ toHex sha'
                             maybe (return acc') (walkTree acc' dir) maybeTree
-        handleEntry acc' (TreeEntry mode path sha') do
+        handleEntry acc' (TreeEntry mode path sha') = do
                             repo <- ask
                             let fullPath = parent </> toFilePath path
                             content <- liftIO $ readObject repo $ toHex sha'

@@ -1,4 +1,4 @@
-{-#- LANGUAGE OverloadedStrings, RecordWildcards, DoAndIfThenElse #-}
+{-# LANGUAGE OverloadedStrings, RecordWildCards, DoAndIfThenElse #-}
 
 module Gitrea.Store.ObjectStore (
   createEmptyGitRepository
@@ -10,7 +10,7 @@ module Gitrea.Store.ObjectStore (
   , readObject
   , readSymRef
   , createRef
-  , getGitRepository
+  , getGitDirectory
 ) where
 
 import qualified Data.ByteString.Char8 as C
@@ -21,8 +21,8 @@ import qualified Crypto.Hash.SHA1 as SHA1
 import Data.Maybe (isJust, fromJust, isNothing)
 import Text.Printf (printf)
 import Data.Char (isSpace)
-import Gitrea.Pack.Packfile
-import Gitrea.Pack.Delta (patch)
+import Gitrea.Packfile.Packfile
+import Gitrea.Packfile.Delta (patch)
 import Gitrea.Common (GitRepository(..), ObjectId, WithRepository, Ref(..))
 import Gitrea.Store.Object
 import System.FilePath
@@ -94,19 +94,19 @@ unpackPackfile (Packfile _ _ objs) = do
     writeDelta repo (PackfileObject ty@(OBJ_REF_DELTA _) _ content) = do
       base <- case toObjectId ty of
         Just sha1 -> liftIO $ readObject repo sha1
-        _ -> Nothing
+        _ -> return Nothing
 
       if isJust base then
         case patch (getBlobContent $ fromJust base) content of
           Right target -> do
             let base' = fromJust base
-                fileName <- writeObject repo (objType base') target
-                return $ Just fileName
+            fileName <- writeObject repo (objType base') target
+            return $ Just fileName
           Left _ -> return Nothing
       else
         return Nothing
     
-    writeDelta _repo_ = error "Dont' expect a resolved object here"
+    writeDelta _repo _ = error "Dont' expect a resolved object here"
 
 updateHead :: [Ref] -> WithRepository ()
 updateHead [] = fail "Unexpected invalid packfile"
@@ -126,7 +126,7 @@ updateHead refs = do
 createSymRef :: String -> String -> WithRepository ()
 createSymRef symName ref = do
   repo <- ask
-  liftIO $ writeFile (getGitRepository repo </> symName) $ "ref: " ++ ref ++ "\n"
+  liftIO $ writeFile (getGitDirectory repo </> symName) $ "ref: " ++ ref ++ "\n"
 
 readSymRef :: String -> WithRepository ObjectId
 readSymRef name = do
@@ -139,13 +139,7 @@ readSymRef name = do
   where strip = C.takeWhile (not . isSpace) . C.dropWhile isSpace
 
 pathForPack :: GitRepository -> FilePath
-pathForPack repo = GitRepository repo </> "objects" </> "pack"
-
-pathForObject :: String -> String -> (FilePath, String)
-pathForObject repoName sha | length sha == 40 = (repoName </> ".git" </> "objects" </> pre, rest)
-  where pre = take 2 sha
-        rest = drop 2 sha
-pathForObject _ _ = ("", "")
+pathForPack repo = getGitDirectory repo </> "objects" </> "pack"
 
 readTree :: GitRepository -> ObjectId -> IO (Maybe Tree)
 readTree repo sha = do
@@ -174,7 +168,7 @@ createEmptyGitRepository gitDir =
     topLevelDirectories = ["objects", "refs", "hooks", "info"]
 
 toObjectId :: PackObjectType -> Maybe ObjectId
-toObjectId (OBJ_REF_DELTA) base = Just $ toHex $ B.pack base
+toObjectId (OBJ_REF_DELTA base) = Just $ toHex $ B.pack base
 toObjectId _ = Nothing
 
 toHex :: C.ByteString -> String
@@ -197,7 +191,7 @@ createRefs refs = do
 createRef :: String -> String -> WithRepository ()
 createRef ref sha = do
   repo <- ask
-  let (repo, name) = splitRefName ref
+  let (path, name) = splitFileName ref
       dir = getGitDirectory repo </> path
   _ <- liftIO $ createDirectoryIfMissing True dir
   liftIO $ writeFile (dir </> name) (sha ++ "\n")

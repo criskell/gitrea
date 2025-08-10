@@ -19,10 +19,12 @@ import Data.Attoparsec.ByteString.Char8
 import Control.Applicative ((<|>))
 import Gitrea.Common (eitherToMaybe, ObjectId)
 
+data ObjectType = BTree | BCommit | BTag | BBlob deriving (Eq)
+
 instance Show ObjectType where
   show BTree = "tree"
   show BCommit = "commit"
-  show BTag tag = "tag"
+  show BTag = "tag"
   show BBlob = "blob"
 
 data Object = Object {
@@ -99,9 +101,9 @@ commitParser = do
   tree <- "tree " .*> take 40
   space
   parents <- many' parseParentCommit
-  author <- "author" .*> parsePerson
+  author <- "author " .*> parsePerson
   space
-  commiter <- "commiter " .*> parsePerson
+  commiter <- "committer " .*> parsePerson
   space
   space
   message <- takeByteString

@@ -28,13 +28,14 @@ data Packfile = Packfile {
 } | InvalidPackfile deriving (Show, Eq)
 
 data PackfileObject = PackfileObject {
-  objectType :: PackfileObjectType
+  objectType :: PackObjectType
   , size :: Int
   , objectData :: Content
 } deriving (Show, Eq)
 
-data PackfileObjectType =
+data PackObjectType =
   OBJ_COMMIT
+  | OBJ_BAD
   | OBJ_TREE
   | OBJ_NONE
   | OBJ_BLOB
@@ -45,9 +46,9 @@ data PackfileObjectType =
   | OBJ_MAX deriving (Eq, Show, Ord)
 
 packRead :: FilePath -> IO Packfile
-packRead path = It.fileDriverRandom parsePackfile
+packRead = It.fileDriverRandom parsePackfile
 
-parsePackfile :: I.Iteratee ByteString IO Packfile
+parsePackfile :: It.Iteratee ByteString IO Packfile
 parsePackfile = do
   magic <- endianRead4 MSB -- 4 bytes, big-endian
   version' <- endianRead4 MSB
@@ -55,16 +56,21 @@ parsePackfile = do
 
   if packMagic == magic
     then parseObjects version' numObjects'
-    else return InvalidPackFile
+    else return InvalidPackfile
 
   where
     packMagic = fromOctets $ map (fromIntegral . ord) "PACK"
+
+parseObjects :: Word32 -> Word32 -> It.Iteratee ByteString IO Packfile
+parseObjects version' num = do
+  objs <- catMaybes <$> replicateM (fromIntegral num) parsePackObject
+  return $ Packfile version' num objs
 
 parsePackObject :: It.Iteratee ByteString IO (Maybe PackfileObject)
 parsePackObject = do
   byte <- It.head
 
-  let objectType' = byte `shiftR` 4 .&. 0b111
+  let objectType' = byte `shiftR` 4 .&. 7
       initial = fromIntegral $ byte .&. 15
 
   size' <- if isMsbSet byte then parseObjectSize initial 0 else return initial
@@ -73,11 +79,9 @@ parsePackObject = do
   !content <- It.joinI $ enumInflate Zlib defaultDecompressParams It.stream2stream
   return $ (\t -> PackfileObject t size' content) <$> normalizedObjectType
 
-isMsbSet :: Word8 -> Bool
-isMsbSet x = (x .&. 0b10000000) /= 0
-
+parseObjectSize :: Int -> Int -> It.Iteratee ByteString IO Int
 parseObjectSize size' iterations = do
-  nextByte <- I.head
+  nextByte <- It.head
   
   let add = (coerce (nextByte .&. 127) :: Int) `shiftL` (4 + iterations * 7)
       acc = size' + fromIntegral add
@@ -89,7 +93,7 @@ parseObjectSize size' iterations = do
 
   where coerce = toEnum . fromEnum
 
-toPackObjectType :: (Show a, Integral a) => a -> I.Iteratee ByteString IO (Maybe PackObjectType)
+toPackObjectType :: (Show a, Integral a) => a -> It.Iteratee ByteString IO (Maybe PackObjectType)
 toPackObjectType 1 = return $ Just OBJ_COMMIT
 toPackObjectType 2 = return $ Just OBJ_TREE
 toPackObjectType 3 = return $ Just OBJ_BLOB
@@ -98,7 +102,7 @@ toPackObjectType 6 = do
   offset <- readOffset 0 0
   return $ Just (OBJ_OFS_DELTA offset)
 toPackObjectType 7 = do
-  baseObject <- replicateM 20 I.head
+  baseObject <- replicateM 20 It.head
   return $ Just (OBJ_REF_DELTA baseObject)
 toPackObjectType _ = return Nothing
 

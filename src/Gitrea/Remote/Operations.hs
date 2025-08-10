@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings, BangPatterns, RecordWildCards #-}
+
 module Gitrea.Remote.Operations (
   Remote(..)
   , clone
@@ -6,7 +8,7 @@ module Gitrea.Remote.Operations (
 ) where
 
 import qualified Data.Attoparsec.Char8 as AC
-import Data.Attocparsec.Combinator
+import Data.Attoparsec.Combinator
 import qualified Data.ByteString.Char8 as C
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Lazy as L
@@ -21,7 +23,7 @@ import Data.Maybe
 import Data.List
 import Gitrea.Common
 import Gitrea.Remote.TcpClient
-import Gitrea.Remote.PackControl
+import Gitrea.Remote.PackProtocol
 import Gitrea.Store.ObjectStore
 import Gitrea.Repository
 
@@ -47,7 +49,7 @@ clone :: String
       -> IO ()
 clone url maybeDirectory =
   case parseRemote $ C.pack url of
-    Just remote -> let gitRepoName = fromMaybe (repositoryName remote) maybeRepository
+    Just remote -> let gitRepoName = fromMaybe (repositoryName remote) maybeDirectory
                    in clone' (GitRepository gitRepoName) remote
     _           -> putStrLn $ "Invalid URL: " ++ url
 
@@ -87,7 +89,7 @@ repositoryName = takeFileName . dropExtension . getRepository
 
 toObjId :: PacketLine -> Maybe String
 toObjId (FirstLine obj _ _) = Just $ C.unpack obj
-toObjId (RefLine obj _ _) = Just $ C.unpack obj
+toObjId (RefLine obj _) = Just $ C.unpack obj
 toObjId _ = Nothing
 
 createNegotiationRequest :: [String] -> [PacketLine] -> String
@@ -99,9 +101,9 @@ createNegotiationRequest capabilities = concatMap (++ "")
   . filter filterPeeledTags
   . filter filterRefs
   where wants = mapMaybe toObjId
-        first acc obj = acc + ["want" ++ obj ++ " " ++ unwords capabilities]
-        additional acc obj = acc ++ ["want" ++ obj]
-        filterPeeledTags = not . isSuffixOf "^{}" . C.unpack ref
+        first acc obj = acc ++ ["want " ++ obj ++ " " ++ unwords capabilities]
+        additional acc obj = acc ++ ["want " ++ obj]
+        filterPeeledTags = not . isSuffixOf "^{}" . C.unpack . ref
         filterRefs line = let r = C.unpack $ ref line
                               predicates = map ($ r) [isPrefixOf "refs/tags/", isPrefixOf "refs/heads/"]
                           in or predicates
@@ -115,10 +117,10 @@ receivePack Remote{..} = withSocketsDo $
     let pack = parsePacket $ L.fromChunks [response]
         request = createNegotiationRequest ["multi_ack_detailed",
                     "side-band-64k",
-                    "agent=git/1.8.1" pack ++ flushPkt ++ pktLine "done\n"
+                    "agent=git/1.8.1"] pack ++ flushPkt ++ pktLine "done\n"
     send sock request
     !rawPack <- receiveWithSideband sock (printSideband . C.unpack)
     return (mapMaybe toRef pack, rawPack)
   where printSideband str = do
                       hPutStr stderr str
-                      hFLush stderr
+                      hFlush stderr

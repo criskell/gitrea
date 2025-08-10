@@ -18,7 +18,7 @@ source-repository head
   type: git
   location: https://github.com/criskell/gitrea
 
-executable gitrea-exe
+executable gitrea
   main-is: Main.hs
   hs-source-dirs:
       src
