@@ -1,5 +1,12 @@
 # gitrea
 
+## tasks
+
+- [x] basic git clone with "git" protocol
+- [ ] support OBJ_OFS_DELTA objects in packfiles
+- [ ] ssh protocol
+- [ ] upgrade tools
+
 ## running
 
 ```
